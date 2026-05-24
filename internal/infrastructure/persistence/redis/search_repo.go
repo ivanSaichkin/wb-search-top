@@ -46,7 +46,7 @@ func (r *SearchRepo) AggregateTopFiveMinutes(ctx context.Context) error {
 	now := time.Now().Truncate(time.Minute)
 
 	var activeKeys []string
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		bucketTime := now.Add(-time.Duration(i) * time.Minute).Unix()
 		activeKeys = append(activeKeys, fmt.Sprintf("search:active:%d", bucketTime))
 	}
@@ -63,7 +63,7 @@ func (r *SearchRepo) AggregateTopFiveMinutes(ctx context.Context) error {
 	var zMembers []redis.Z
 	for _, query := range queries {
 		var hllKeys []string
-		for i := 0; i < 5; i++ {
+		for i := range 5 {
 			bucketTime := now.Add(-time.Duration(i) * time.Minute).Unix()
 			hllKeys = append(hllKeys, fmt.Sprintf("search:hll:%d:%s", bucketTime, query))
 		}
