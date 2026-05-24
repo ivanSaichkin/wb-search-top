@@ -23,7 +23,7 @@ func NewSearchRepo(client *redis.Client) *SearchRepo {
 }
 
 // сохраняет событие в бакет текущей минуты
-func (r *SearchRepo) AddEvent(ctx context.Context, event models.SearchEvent) error {
+func (r *SearchRepo) AddEvent(ctx context.Context, event *models.SearchEvent) error {
 	minuteBucket := event.Timestamp.Truncate(time.Minute).Unix()
 
 	hllKey := fmt.Sprintf("search:hll:%d:%s", minuteBucket, event.Query)
