@@ -19,5 +19,5 @@ type StopListRepository interface {
 	Add(ctx context.Context, word string) error
 	Remove(ctx context.Context, word string) error
 	Contains(ctx context.Context, word string) (bool, error)
-	GetActiveList(ctx context.Context) (map[string]string, error)
+	GetActiveList(ctx context.Context) (map[string]struct{}, error)
 }
