@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,12 +12,16 @@ import (
 	"github.com/ivanSaichkin/wb-search-top/internal/app/factory"
 	"github.com/ivanSaichkin/wb-search-top/internal/config"
 	httpAdapter "github.com/ivanSaichkin/wb-search-top/internal/interfaces/http"
-	"github.com/ivanSaichkin/wb-search-top/internal/interfaces/kafka"
+	"github.com/ivanSaichkin/wb-search-top/internal/interfaces/rabbitmq"
+	"github.com/ivanSaichkin/wb-search-top/internal/logger"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
 	cfg := config.Load()
+	logger := logger.InitLogger(cfg.Logger)
+	slog.SetDefault(logger)
+	logger.Info("Logger initialized", "level", cfg.Logger.Level, "format", cfg.Logger.Format)
 
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Addr,
@@ -27,19 +31,26 @@ func main() {
 	defer redisClient.Close()
 
 	if err := redisClient.Ping(context.Background()).Err(); err != nil {
-		log.Fatalf("Failed to connect to Redis: %v", err)
+		slog.Error("Failed to connect to Redis", "error", err)
+		os.Exit(1)
 	}
+	slog.Info("Connected to Redis", "addr", cfg.Redis.Addr)
 
 	srvFactory := factory.NewServiceFactory(redisClient)
 	services := srvFactory.Build()
 
-	// Запуск фонового воркера агрегации
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Запуск фонового воркера агрегации
 	go services.Search.RunAggregatorWorker(ctx, cfg.App.TopInterval)
 
-	// Запуск Kafka Consumer
-	consumer := kafka.NewConsumer(cfg.Kafka.Brokers, cfg.Kafka.Topic, cfg.Kafka.GroupID, services.Search)
+	// Запуск RabbitMQ Consumer
+	consumer, err := rabbitmq.NewConsumer(cfg.RabbitMQ.URL, cfg.RabbitMQ.Queue, services.Search)
+	if err != nil {
+		slog.Error("Failed to initialize RabbitMQ consumer", "error", err)
+		os.Exit(1)
+	}
 	go consumer.Start(ctx)
 	defer consumer.Close()
 
@@ -54,9 +65,10 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("Starting HTTP server on %s", cfg.App.HTTPPort)
+		slog.Info("Starting HTTP server", "port", cfg.App.HTTPPort)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Server error: %v", err)
+			slog.Error("Server error", "error", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -64,15 +76,16 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	log.Println("Shutting down server...")
+	slog.Info("Shutting down server...")
 
 	cancel()
 
 	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
 	if err := srv.Shutdown(ctxShutdown); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		slog.Error("Server forced to shutdown", "error", err)
+		os.Exit(1)
 	}
 
-	log.Println("Server exiting")
+	slog.Info("Server exiting gracefully")
 }
