@@ -48,13 +48,19 @@ func NewConsumer(url, queue string, useCase usecases.SearchUseCase) (*Consumer, 
 		return nil, err
 	}
 
+	// TTL для Dead Letter Queue
+	dlqArgs := amqp.Table{
+		"x-message-ttl": int32(604800000), // 7 дней
+		"x-max-length":  int32(50000),     // 50000 сообщений
+	}
+
 	_, err = ch.QueueDeclare(
 		dlqName, // name
 		true,    // durable
 		false,   // delete when unused
 		false,   // exclusive
 		false,   // no-wait
-		nil,     // arguments
+		dlqArgs, // arguments
 	)
 	if err != nil {
 		ch.Close()
