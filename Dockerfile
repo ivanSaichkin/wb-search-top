@@ -15,5 +15,6 @@ WORKDIR /app
 COPY --from=builder /app/search_service .
 
 EXPOSE 8080
+EXPOSE 2112
 
 CMD ["./search_service"]

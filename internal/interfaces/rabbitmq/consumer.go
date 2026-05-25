@@ -7,6 +7,7 @@ import (
 
 	"github.com/ivanSaichkin/wb-search-top/internal/domain/models"
 	"github.com/ivanSaichkin/wb-search-top/internal/domain/ports/usecases"
+	"github.com/ivanSaichkin/wb-search-top/internal/infrastructure/metrics"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
@@ -137,6 +138,7 @@ func (c *Consumer) Start(ctx context.Context) {
 			// Сообщение автоматически улетает в search_events.dlq
 			if err := json.Unmarshal(d.Body, &event); err != nil {
 				slog.Error("Error unmarshaling event, sending to DLQ", "error", err, "body", string(d.Body))
+				metrics.RabbitMQMessagesTotal.WithLabelValues("json_error").Inc()
 				if err := d.Nack(false, false); err != nil {
 					slog.Error("Error send to DLQ", "error", err)
 				}
@@ -147,6 +149,7 @@ func (c *Consumer) Start(ctx context.Context) {
 			// чтобы не зацикливать обработку поврежденных данных.
 			if err := c.useCase.ProcessEvent(ctx, &event); err != nil {
 				slog.Error("Error processing event, sending to DLQ", "error", err, "query", event.Query)
+				metrics.RabbitMQMessagesTotal.WithLabelValues("process_error").Inc()
 				if err := d.Nack(false, false); err != nil {
 					slog.Error("Error send to DLQ", "error", err)
 				}
@@ -155,6 +158,7 @@ func (c *Consumer) Start(ctx context.Context) {
 
 			// Успешный исход — подтверждаем обработку
 			d.Ack(false)
+			metrics.RabbitMQMessagesTotal.WithLabelValues("success").Inc()
 		}
 	}
 }

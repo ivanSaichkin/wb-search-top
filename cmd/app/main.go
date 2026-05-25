@@ -14,6 +14,7 @@ import (
 	httpAdapter "github.com/ivanSaichkin/wb-search-top/internal/interfaces/http"
 	"github.com/ivanSaichkin/wb-search-top/internal/interfaces/rabbitmq"
 	"github.com/ivanSaichkin/wb-search-top/internal/logger"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -58,10 +59,11 @@ func main() {
 	mux := http.NewServeMux()
 	handler := httpAdapter.NewHandler(services.Search, services.StopList)
 	handler.RegisterRoutes(mux)
+	wrappedHandler := httpAdapter.MetricsMiddleware(mux)
 
 	srv := &http.Server{
 		Addr:    cfg.App.HTTPPort,
-		Handler: mux,
+		Handler: wrappedHandler,
 	}
 
 	go func() {
@@ -70,6 +72,19 @@ func main() {
 			slog.Error("Server error", "error", err)
 			os.Exit(1)
 		}
+		slog.Info("HTTP server started successfully", "port", cfg.App.HTTPPort)
+	}()
+
+	// Запуск отдельного HTTP-сервера для сбора метрик Прометеусом
+	go func() {
+		metricsMux := http.NewServeMux()
+		metricsMux.Handle("/metrics", promhttp.Handler())
+
+		slog.Info("Starting Prometheus metrics server", "port", ":2112")
+		if err := http.ListenAndServe(":2112", metricsMux); err != nil {
+			slog.Error("Metrics server failed", "error", err)
+		}
+		slog.Info("Prometheus metrics server started successfully", "port", ":2112")
 	}()
 
 	// Graceful Shutdown
