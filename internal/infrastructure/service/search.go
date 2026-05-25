@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -63,18 +63,21 @@ func (s *SearchService) GetFilteredTop(ctx context.Context, limit int) ([]*model
 
 // запускает фоновый процесс пересчета топа
 func (s *SearchService) RunAggregatorWorker(ctx context.Context, interval time.Duration) {
+	slog.Info("Starting aggregator worker...", slog.Duration("interval", interval))
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("Aggregator worker stopped")
+			slog.Info("Aggregator worker stopped")
 			return
 		case <-ticker.C:
 			err := s.searchRepo.AggregateTopFiveMinutes(ctx)
 			if err != nil {
-				log.Printf("Error aggregating top: %v\n", err)
+				slog.Error("Error aggregating top", "error", err)
+			} else {
+				slog.Debug("Top aggregated successfully")
 			}
 		}
 	}

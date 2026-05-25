@@ -7,9 +7,10 @@ import (
 )
 
 type Config struct {
-	App   AppConfig
-	Redis RedisConfig
-	Kafka KafkaConfig
+	App      AppConfig
+	Redis    RedisConfig
+	RabbitMQ RabbitMQConfig
+	Logger   LoggerConfig
 }
 
 type AppConfig struct {
@@ -23,27 +24,34 @@ type RedisConfig struct {
 	DB       int
 }
 
-type KafkaConfig struct {
-	Brokers []string
-	Topic   string
-	GroupID string
+type RabbitMQConfig struct {
+	URL   string
+	Queue string
+}
+
+type LoggerConfig struct {
+	Level  string
+	Format string
 }
 
 func Load() *Config {
 	return &Config{
 		App: AppConfig{
 			HTTPPort:    getEnvString("HTTP_PORT", ":8080"),
-			TopInterval: getEnvDuration("TOP_COMPUT_INTERVAL", 2*time.Second),
+			TopInterval: getEnvDuration("TOP_COMPUTE_INTERVAL", 2*time.Second),
 		},
 		Redis: RedisConfig{
 			Addr:     getEnvString("REDIS_ADDR", "localhost:6379"),
 			Password: getEnvString("REDIS_PASSWORD", ""),
 			DB:       getEnvInt("REDIS_DB", 0),
 		},
-		Kafka: KafkaConfig{
-			Brokers: []string{getEnvString("KAFKA_BROKERS", "localhost:9092")},
-			Topic:   getEnvString("KAFKA_TOPIC", "search_events"),
-			GroupID: getEnvString("KAFKA_GROUP_ID", "top_processor"),
+		RabbitMQ: RabbitMQConfig{
+			URL:   getEnvString("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
+			Queue: getEnvString("RABBITMQ_QUEUE", "search_events"),
+		},
+		Logger: LoggerConfig{
+			Level:  getEnvString("LOG_LEVEL", "debug"),
+			Format: getEnvString("LOG_FORMAT", "text"),
 		},
 	}
 }
