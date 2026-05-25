@@ -1,0 +1,69 @@
+version: '3.9'
+
+services:
+  broker:
+    image: rabbitmq:3-management-alpine 
+    container_name: searches_rabbitmq
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "15672:15672" 
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - searches_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  database:
+    image: redis:7-alpine
+    container_name: searches_redis
+    ports:
+      - "${REDIS_PORT}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - searches_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  app:
+    build: .
+    container_name: searches_app
+    ports:
+      - "${APP_PORT}:8080"
+    environment:
+      - HTTP_PORT=:${APP_PORT}
+      - REDIS_ADDR=database:6379
+      - REDIS_PASSWORD=
+      - REDIS_DB=0
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@broker:5672/
+      - RABBITMQ_QUEUE=search_events
+      - LOG_LEVEL=debug 
+      - LOG_FORMAT=json
+    depends_on:
+      broker:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+    networks:
+      - searches_network
+    restart: on-failure
+
+volumes:
+  rabbitmq_data:
+  redis_data:
+
+networks:
+  searches_network:
+    driver: bridge
