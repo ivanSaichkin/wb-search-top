@@ -29,13 +29,64 @@ func NewConsumer(url, queue string, useCase usecases.SearchUseCase) (*Consumer, 
 		return nil, err
 	}
 
+	// Инициализируем инфраструктуру для Dead Letter Queue
+	dlxName := queue + ".dlx"
+	dlqName := queue + ".dlq"
+
+	err = ch.ExchangeDeclare(
+		dlxName,  // name
+		"fanout", // type (fanout отправит сообщение во все привязанные очереди)
+		true,     // durable
+		false,    // auto-deleted
+		false,    // internal
+		false,    // no-wait
+		nil,      // arguments
+	)
+	if err != nil {
+		ch.Close()
+		conn.Close()
+		return nil, err
+	}
+
+	// TTL для Dead Letter Queue
+	dlqArgs := amqp.Table{
+		"x-message-ttl": int32(604800000), // 7 дней
+		"x-max-length":  int32(50000),     // 50000 сообщений
+	}
+
+	_, err = ch.QueueDeclare(
+		dlqName, // name
+		true,    // durable
+		false,   // delete when unused
+		false,   // exclusive
+		false,   // no-wait
+		dlqArgs, // arguments
+	)
+	if err != nil {
+		ch.Close()
+		conn.Close()
+		return nil, err
+	}
+
+	// // Связываем DLQ с DLX
+	err = ch.QueueBind(dlqName, "", dlxName, false, nil)
+	if err != nil {
+		ch.Close()
+		conn.Close()
+		return nil, err
+	}
+
+	args := amqp.Table{
+		"x-dead-letter-exchange": dlxName,
+	}
+
 	_, err = ch.QueueDeclare(
 		queue, // name
 		true,  // durable
 		false, // delete when unused
 		false, // exclusive
 		false, // no-wait
-		nil,   // arguments
+		args,  // аргументы для DLQ
 	)
 	if err != nil {
 		ch.Close()
@@ -52,12 +103,12 @@ func NewConsumer(url, queue string, useCase usecases.SearchUseCase) (*Consumer, 
 }
 
 func (c *Consumer) Start(ctx context.Context) {
-	slog.Info("Starting RabbitMQ consumer...", slog.String("queue", c.queue))
+	slog.Info("Starting RabbitMQ consumer with Manual Ack...", slog.String("queue", c.queue))
 
 	msgs, err := c.ch.Consume(
 		c.queue, // queue
 		"",      // consumer tags
-		true,    // auto-ack
+		false,   // auto-ack FALSE
 		false,   // exclusive
 		false,   // no-local
 		false,   // no-wait
@@ -82,14 +133,28 @@ func (c *Consumer) Start(ctx context.Context) {
 			slog.Debug("Received a message from RabbitMQ", "body", string(d.Body))
 
 			var event models.SearchEvent
+			// Если пришел битый JSON, мы логируем ошибку и отправляем Nack с requeue=false.
+			// Сообщение автоматически улетает в search_events.dlq
 			if err := json.Unmarshal(d.Body, &event); err != nil {
-				slog.Error("Error unmarshaling event", "error", err, "body", string(d.Body))
+				slog.Error("Error unmarshaling event, sending to DLQ", "error", err, "body", string(d.Body))
+				if err := d.Nack(false, false); err != nil {
+					slog.Error("Error send to DLQ", "error", err)
+				}
 				continue
 			}
 
+			// Если бизнес-логика ответила ошибкой, мы также изолируем сообщение в DLQ,
+			// чтобы не зацикливать обработку поврежденных данных.
 			if err := c.useCase.ProcessEvent(ctx, &event); err != nil {
-				slog.Error("Error processing event", "error", err, "query", event.Query)
+				slog.Error("Error processing event, sending to DLQ", "error", err, "query", event.Query)
+				if err := d.Nack(false, false); err != nil {
+					slog.Error("Error send to DLQ", "error", err)
+				}
+				continue
 			}
+
+			// Успешный исход — подтверждаем обработку
+			d.Ack(false)
 		}
 	}
 }
