@@ -8,6 +8,7 @@ import (
 
 	"github.com/ivanSaichkin/wb-search-top/internal/domain/models"
 	"github.com/ivanSaichkin/wb-search-top/internal/domain/ports/repo"
+	"github.com/ivanSaichkin/wb-search-top/internal/infrastructure/metrics"
 )
 
 type SearchService struct {
@@ -73,7 +74,9 @@ func (s *SearchService) RunAggregatorWorker(ctx context.Context, interval time.D
 			slog.Info("Aggregator worker stopped")
 			return
 		case <-ticker.C:
+			startTime := time.Now()
 			err := s.searchRepo.AggregateTopFiveMinutes(ctx)
+			metrics.AggregationDuration.Observe(time.Since(startTime).Seconds())
 			if err != nil {
 				slog.Error("Error aggregating top", "error", err)
 			} else {
