@@ -18,10 +18,10 @@
 Я подготовил чистое окружение на официальных Docker-образах (без использования тяжелых сборок).
 
 **1. Клонирование репозитория**
-Склонируйте проект из моего публичного репозитория и перейдите в его директорию:
+Склонируйте проект из моего публичного репозитория `[text](https://github.com/ivanSaichkin/wb-search-top)` и перейдите в его директорию:
 
 ```bash
-git clone [https://github.com/ivanSaichkin/wb-search-top](https://github.com/ivanSaichkin/wb-search-top)
+git clone https://github.com/ivanSaichkin/wb-search-top
 cd wb-search-top
 ```
 
