@@ -131,34 +131,7 @@ func (c *Consumer) Start(ctx context.Context) {
 				return
 			}
 
-			slog.Debug("Received a message from RabbitMQ", "body", string(d.Body))
-
-			var event models.SearchEvent
-			// Если пришел битый JSON, мы логируем ошибку и отправляем Nack с requeue=false.
-			// Сообщение автоматически улетает в search_events.dlq
-			if err := json.Unmarshal(d.Body, &event); err != nil {
-				slog.Error("Error unmarshaling event, sending to DLQ", "error", err, "body", string(d.Body))
-				metrics.RabbitMQMessagesTotal.WithLabelValues("json_error").Inc()
-				if err := d.Nack(false, false); err != nil {
-					slog.Error("Error send to DLQ", "error", err)
-				}
-				continue
-			}
-
-			// Если бизнес-логика ответила ошибкой, мы также изолируем сообщение в DLQ,
-			// чтобы не зацикливать обработку поврежденных данных.
-			if err := c.useCase.ProcessEvent(ctx, &event); err != nil {
-				slog.Error("Error processing event, sending to DLQ", "error", err, "query", event.Query)
-				metrics.RabbitMQMessagesTotal.WithLabelValues("process_error").Inc()
-				if err := d.Nack(false, false); err != nil {
-					slog.Error("Error send to DLQ", "error", err)
-				}
-				continue
-			}
-
-			// Успешный исход — подтверждаем обработку
-			d.Ack(false)
-			metrics.RabbitMQMessagesTotal.WithLabelValues("success").Inc()
+			c.processDelivery(ctx, d)
 		}
 	}
 }
@@ -171,4 +144,30 @@ func (c *Consumer) Close() {
 		c.conn.Close()
 	}
 	slog.Info("RabbitMQ connections closed cleanly")
+}
+
+func (c *Consumer) processDelivery(ctx context.Context, d amqp.Delivery) {
+	slog.Debug("Received a message from RabbitMQ", "body", string(d.Body))
+
+	var event models.SearchEvent
+	if err := json.Unmarshal(d.Body, &event); err != nil {
+		slog.Error("Error unmarshaling event, sending to DLQ", "error", err, "body", string(d.Body))
+		metrics.RabbitMQMessagesTotal.WithLabelValues("json_error").Inc()
+		if err := d.Nack(false, false); err != nil {
+			slog.Error("Error send to DLQ", "error", err)
+		}
+		return
+	}
+
+	if err := c.useCase.ProcessEvent(ctx, &event); err != nil {
+		slog.Error("Error processing event, sending to DLQ", "error", err, "query", event.Query)
+		metrics.RabbitMQMessagesTotal.WithLabelValues("process_error").Inc()
+		if err := d.Nack(false, false); err != nil {
+			slog.Error("Error send to DLQ", "error", err)
+		}
+		return
+	}
+
+	d.Ack(false)
+	metrics.RabbitMQMessagesTotal.WithLabelValues("success").Inc()
 }
