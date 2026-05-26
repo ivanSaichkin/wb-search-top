@@ -24,10 +24,6 @@ func (r *StopListRepo) Remove(ctx context.Context, word string) error {
 	return r.client.SRem(ctx, stopListKey, word).Err()
 }
 
-func (r *StopListRepo) Contains(ctx context.Context, word string) (bool, error) {
-	return r.client.SIsMember(ctx, stopListKey, word).Result()
-}
-
 func (r *StopListRepo) GetActiveList(ctx context.Context) (map[string]struct{}, error) {
 	words, err := r.client.SMembers(ctx, stopListKey).Result()
 	if err != nil {
